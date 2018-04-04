@@ -4,6 +4,9 @@ Simple Bash script to export `active channels`, `active calls` and `calls proces
 
 ![Asterisk Stackdriver Screenshot](./asterisk-stackdriver-screenshot.png)
 
+![Asterisk Stackdriver Screenshot](./asterisk-stat-page-screenshot.png)
+
+
 **NB** You have to create Asterisk custom metrics within your GCP Console projects before deploying this script.
 
 ## Create Asterisk custom metrics
@@ -277,6 +280,27 @@ Then use below values:
  */5 * * * * root /etc/asterisk/bin/asterisk_stat.sh >> /var/log/cron.log 2>&1
  ```
 
+* Setting up the Asterisk HTTP server
+
+ **`/etc/asterisk/http.conf`**
+ 
+ ```
+ ;http.conf
+ [general]
+ enabled=yes
+ bindaddr=0.0.0.0
+ bindport=8088
+ tlsenable=yes
+ tlsbindaddr=0.0.0.0:7443
+ tlscertfile=/etc/asterisk/keys/asterisk.pem
+ tlsprivatekey=/etc/asterisk/keys/asterisk.pem
+ enablestatic=yes
+ servername=Rebtel Media Gateway
+ ;redirect = / /httpstatus
+ ```
+ 
+ The static html page `[astdatadir]/static-http/current-status.html`will be generated if asterisk is running otherwise the script wil remove it.
+ 
 **NB** For the log rotation, check that the file `/var/log/cron.log` is including in `/etc/logrotate.d/syslog`
 
 ## Requirements

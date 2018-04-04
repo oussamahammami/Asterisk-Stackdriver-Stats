@@ -21,18 +21,18 @@
 PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin:/usr/local/sbin
 my_pid=$$
 
- # Replace with yours
+# SIPInfra parameters
 
- gcp_project_id="YOUR-GCP-PROJECT-ID"
- gcp_instance_id="GCP-INSTANCE-ID"
- gcp_zone="GCP-ZONE"
+gcp_project_id="rebtel-calling-infra-prod"
+gcp_instance_id="prod-custom-image-eu-west3-a-v1"
+gcp_zone="europe-west3-a"
 
 #### NO CHANGES BELOW THIS LINE!
 
 VERSION=0.0.2
 MRC=0
 
-# Lock the Script
+# Lock the Scripts
 
 [[ "$LOCKFILE" == "" ]] && LOCKFILE="/var/lock/`basename $0`"
 LOCKFD=99
@@ -53,8 +53,8 @@ unlock()            { _lock u; }   # drop a lock
 
 # Simplest example is avoiding running multiple instances of script.
 exlock_now || {
-  echo "ERROR: `basename $0` already running!"
-  exit 1
+	echo "ERROR: `basename $0` already running!"
+	exit 1
 }
 
 ######################################################################
@@ -219,6 +219,18 @@ execute_request() {
 
 asterisk_stat() {
   # This is the main app, get asterisk stat from cli
+  local cmd_rm=$(locate_cmd "rm")
+  $cmd_rm -rf "/usr/share/asterisk/static-http/current-status.html"
+
+  local cmd_date=$(locate_cmd "date")
+
+  local start_date=$($cmd_date '+%Y-%m-%d %H:%M:%S')
+  echo  2>&1
+  echo "######################################################################"
+  echo "[$start_date] - Rebtel Stack Driver Stat: Start execution..."
+  echo "######################################################################"
+  echo  2>&1
+
   if ! is_root_user; then
     echo "ERROR: You must be the root user. Exiting..." 2>&1
     echo  2>&1
@@ -228,30 +240,84 @@ asterisk_stat() {
   local cmd_asterisk=$(locate_cmd "asterisk")
   local cmd_tail=$(locate_cmd "tail")
   local ast_data=$($cmd_asterisk -rx 'core show channels' | $cmd_tail -3)
+  local ast_pjsip=$($cmd_asterisk -rx 'pjsip show version')
   local regexp_channels="^([0-9]+) active channel.{0,1}$"
   local regexp_calls="^([0-9]+) active call.{0,1}$"
   local regexp_processed="^([0-9]+) call.{0,1} processed$"
+  local regexp_pjsip="^PJPROJECT version currently running against: ([0-9]+\.?[0-9]+\.?[0-9]+)$"
 
-  if [[ ! -z "$ast_data" ]]; then
+  if [[ $ast_pjsip =~ $regexp_pjsip ]] ; then
+    local pjsip_version=${BASH_REMATCH[1]}
+  else
+    echo "ERROR: pjsip probably not loaded ! Exiting..." 2>&1
+    echo  2>&1
+    exit 1
+  fi
+
+  local cmd_wc=$(locate_cmd "wc")
+  local ast_data_nbl=$($cmd_wc -l <<< "$ast_data")
+  if [[ "$ast_data_nbl" != "3" ]] ; then
+    echo "ERROR: asterisk channels stat wrong output ! Exiting..." 2>&1
+    echo  2>&1
+    exit 1
+  fi
+
+  if [[ !(-z "$ast_data") && !(-z $ast_pjsip) ]]; then
+    echo '<!DOCTYPE HTML>
+                    <html lang="en">
+          <head>
+          <meta charset="utf-8">
+          <title>Asterisk Status Page</title>
+          <meta name="viewport" content="width=device-width">
+          <meta name="robots" content="noindex, nofollow">
+          <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/3.3.7/css/bootstrap.min.css">
+          </head>
+          <body>
+          <div class="container" style="width: 40%; margin:0 auto;">
+          <div class="page-header">
+                  <h1>
+                          Asterisk Status Page
+                  </h1>
+          </div>
+          <ul class="list-group">
+                  <li class="list-group-item list-group-item-success">PJSIP version currently running '$pjsip_version'</li>
+          ' > /usr/share/asterisk/static-http/current-status.html 2> /dev/null
     while read -r line; do
       if [[ $line =~ $regexp_channels ]] ; then
         execute_request "active_channels" ${BASH_REMATCH[1]} >/dev/null 2>&1
+        echo '<li class="list-group-item">
+          <span class="badge"><span class="glyphicon glyphicon-ok" aria-hidden="true"></span> '${BASH_REMATCH[1]}'</span>
+          active channels</li>' >> /usr/share/asterisk/static-http/current-status.html 2> /dev/null
       else
         if [[ $line =~ $regexp_calls ]] ; then
           execute_request "active_calls" ${BASH_REMATCH[1]} >/dev/null 2>&1
+          echo '<li class="list-group-item">
+            <span class="badge"><span class="glyphicon glyphicon-ok" aria-hidden="true"></span> '${BASH_REMATCH[1]}'</span>
+            active calls</li>' >> /usr/share/asterisk/static-http/current-status.html 2> /dev/null
         else
           if [[ $line =~ $regexp_processed ]] ; then
             execute_request "calls_processed" ${BASH_REMATCH[1]} >/dev/null 2>&1
+            echo '<li class="list-group-item">
+              <span class="badge"><span class="glyphicon glyphicon-ok" aria-hidden="true"></span> '${BASH_REMATCH[1]}'</span>
+              calls processed</li>' >> /usr/share/asterisk/static-http/current-status.html 2> /dev/null
           fi
         fi
       fi
     done <<< "$ast_data"
+    echo '</ul>
+          <hr>
+          <footer style="position: absolute;right: 0;bottom: 0;left: 0;padding: 1rem;background-color: #efefef;text-align: center;">
+                  <p><a href="https://www.rebtel.com/en/">Rebtel SIP INFRA</a> &copy; 2018
+                  <span class="text-muted">&nbsp;-&nbsp;Generated at '$start_date'</span></p>
+          </footer>
+          </div>
+          </body>
+          </html>' >> /usr/share/asterisk/static-http/current-status.html 2> /dev/null
   else
     echo "HALT: asterisk execute core show channels error !" >&2
     /bin/kill -s TERM $my_pid
     exit 1
   fi
-  local cmd_date=$(locate_cmd "date")
   local time_series=$($cmd_date --utc +%FT%T.%3NZ)
   echo "$time_series: Asterisk stats exported successfully, ENJOY :)"
   exit 0
