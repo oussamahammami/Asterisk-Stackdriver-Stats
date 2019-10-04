@@ -309,8 +309,6 @@ Only `bash`, `curl` and `asterisk`.
 
 ## Notes & Ref
 
-Please feel free to fork and modify !
-
 * [Creating and Enabling Service Accounts for Instances](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances)
 * [Creating Custom Metrics](https://cloud.google.com/monitoring/custom-metrics/creating-metrics)
 * [Using Custom Metrics](https://cloud.google.com/monitoring/custom-metrics/)
